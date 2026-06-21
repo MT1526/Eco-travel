@@ -10,12 +10,12 @@ import java.time.LocalDateTime;
 public class Trip {
 
     @Id
-    private Long id; // cambiado a Long
-    private Long userId; // Long
+    private Long id;
+    private Long userId;
     private String origin;
     private String destination;
     private String transportMode;
-    private Long vehicleId; // Long (puede ser null)
+    private Long vehicleId;
     private Double distance;
     private Double travelTime;
     private Double cost;
@@ -24,15 +24,15 @@ public class Trip {
     private Double avoidedEmissions;
     private Integer sustainabilityScore;
     private LocalDateTime date;
+    private String busOccupancy; // NUEVO: "LOW", "MEDIUM", "HIGH" (solo para BUS)
 
-    public Trip() {
-    }
+    public Trip() {}
 
     public Trip(Long id, Long userId, String origin, String destination,
                 String transportMode, Long vehicleId, Double distance,
                 Double travelTime, Double cost, Double generatedEmissions,
                 Double alternativeEmissions, Double avoidedEmissions,
-                Integer sustainabilityScore, LocalDateTime date) {
+                Integer sustainabilityScore, LocalDateTime date, String busOccupancy) {
         this.id = id;
         this.userId = userId;
         this.origin = origin;
@@ -47,8 +47,10 @@ public class Trip {
         this.avoidedEmissions = avoidedEmissions;
         this.sustainabilityScore = sustainabilityScore;
         this.date = date;
+        this.busOccupancy = busOccupancy;
     }
 
+    // Getters y Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -91,6 +93,9 @@ public class Trip {
     public LocalDateTime getDate() { return date; }
     public void setDate(LocalDateTime date) { this.date = date; }
 
+    public String getBusOccupancy() { return busOccupancy; }
+    public void setBusOccupancy(String busOccupancy) { this.busOccupancy = busOccupancy; }
+
     @Override
     public String toString() {
         return "Trip{" +
@@ -108,6 +113,7 @@ public class Trip {
                 ", avoidedEmissions=" + avoidedEmissions +
                 ", sustainabilityScore=" + sustainabilityScore +
                 ", date=" + date +
+                ", busOccupancy='" + busOccupancy + '\'' +
                 '}';
     }
 }

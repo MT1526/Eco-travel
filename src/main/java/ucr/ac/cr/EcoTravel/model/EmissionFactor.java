@@ -9,13 +9,12 @@ import jakarta.persistence.Table;
 public class EmissionFactor {
 
     @Id
-    private Long id; // cambiado a Long
+    private Long id;
     private String transportType;
     private Double factorValue;
     private String description;
 
-    public EmissionFactor() {
-    }
+    public EmissionFactor() {}
 
     public EmissionFactor(Long id, String transportType, Double factorValue, String description) {
         this.id = id;
@@ -24,37 +23,17 @@ public class EmissionFactor {
         this.description = description;
     }
 
-    public Long getId() {
-        return id;
-    }
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
 
-    public void setId(Long id) {
-        this.id = id;
-    }
+    public String getTransportType() { return transportType; }
+    public void setTransportType(String transportType) { this.transportType = transportType; }
 
-    public String getTransportType() {
-        return transportType;
-    }
+    public Double getFactorValue() { return factorValue; }
+    public void setFactorValue(Double factorValue) { this.factorValue = factorValue; }
 
-    public void setTransportType(String transportType) {
-        this.transportType = transportType;
-    }
-
-    public Double getFactorValue() {
-        return factorValue;
-    }
-
-    public void setFactorValue(Double factorValue) {
-        this.factorValue = factorValue;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 
     @Override
     public String toString() {

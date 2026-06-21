@@ -46,16 +46,16 @@ public class VehicleService {
         return this.vehicleRepository.findAll();
     }
 
-    public Vehicle findById(Long id) { // Long
+    public Vehicle findById(Long id) {
         Optional<Vehicle> opt = this.vehicleRepository.findById(id);
         return opt.orElse(null);
     }
 
-    public void deleteVehicle(Long id) { // Long
+    public void deleteVehicle(Long id) {
         this.vehicleRepository.deleteById(id);
     }
 
-    public Vehicle editVehicle(Long id, Vehicle vehicleEdit) { // Long
+    public Vehicle editVehicle(Long id, Vehicle vehicleEdit) {
         Optional<Vehicle> vehicleOp = this.vehicleRepository.findById(id);
         if (vehicleOp.isPresent()) {
             Vehicle vehicle = vehicleOp.get();
@@ -76,5 +76,15 @@ public class VehicleService {
         List<Vehicle> all = this.vehicleRepository.findAll();
         if (all.isEmpty()) return null;
         return all.stream().min(Comparator.comparing(Vehicle::getEmissionFactor)).orElse(null);
+    }
+
+    // NUEVO: obtiene el carro más eficiente excluyendo uno dado
+    public Vehicle findMostEcoFriendlyCarExcluding(Long excludeId) {
+        List<Vehicle> all = this.vehicleRepository.findAll();
+        if (all.isEmpty()) return null;
+        return all.stream()
+                .filter(v -> !v.getId().equals(excludeId))
+                .min(Comparator.comparing(Vehicle::getEmissionFactor))
+                .orElse(null);
     }
 }

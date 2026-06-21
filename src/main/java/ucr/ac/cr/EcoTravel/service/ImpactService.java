@@ -27,7 +27,12 @@ public class ImpactService {
     @Autowired
     private VehicleService vehicleService;
 
-    public StatsDTO getStatsByUserId(Long userId) { // Long
+    // Factores de emisión para BUS según ocupación (kg/km)
+    private static final double BUS_FACTOR_LOW = 0.05;
+    private static final double BUS_FACTOR_MEDIUM = 0.03;
+    private static final double BUS_FACTOR_HIGH = 0.008; // Ajustado para que bus lleno sea mejor que tren
+
+    public StatsDTO getStatsByUserId(Long userId) {
         List<Trip> trips = tripRepository.findByUserId(userId);
         if (trips.isEmpty()) {
             return new StatsDTO(0, 0.0, 0.0, 0.0, 0.0, new HashMap<>());
@@ -77,31 +82,46 @@ public class ImpactService {
         if ("CAR".equals(mode) && (request.getVehicleId() == null || !vehicleRepository.existsById(request.getVehicleId()))) {
             throw new IllegalArgumentException("Valid vehicleId required for CAR");
         }
+        if ("BUS".equals(mode)) {
+            String occupancy = request.getBusOccupancy();
+            if (occupancy == null || !Arrays.asList("LOW", "MEDIUM", "HIGH").contains(occupancy)) {
+                throw new IllegalArgumentException("Valid busOccupancy required for BUS: LOW, MEDIUM, HIGH");
+            }
+        }
 
-        Double usedFactor = getFactorForMode(mode, request.getVehicleId());
+        Double usedFactor = getFactorForMode(mode, request.getVehicleId(), request.getBusOccupancy());
         double generated = request.getDistance() * usedFactor;
 
-        double bestAlternativeFactor = getBestAlternativeFactor(mode);
+        double bestAlternativeFactor = getBestAlternativeFactor(mode, request.getVehicleId(), request.getBusOccupancy());
         double alternative = request.getDistance() * bestAlternativeFactor;
-        double avoided = alternative - generated;
+        double avoided = generated - alternative;
 
-        double bestOverall = getBestOverallFactor(mode, request.getVehicleId());
+        double bestOverall = getBestOverallFactor(mode, request.getVehicleId(), request.getBusOccupancy());
         int score = (int) Math.round((bestOverall / usedFactor) * 100);
         score = Math.max(0, Math.min(100, score));
 
-        String recommended = getRecommendedMode(mode, request.getDistance());
+        // Determinar recomendación solo si hay ahorro (el modo actual no es el más eficiente)
+        String recommendedMode = null;
+        String recommendedVehicleName = null;
+        if (avoided > 0) {
+            recommendedMode = getRecommendedMode(mode, request.getVehicleId());
+            if ("CAR".equals(recommendedMode)) {
+                Vehicle bestCar = vehicleService.findMostEcoFriendlyCarExcluding(request.getVehicleId());
+                if (bestCar != null) {
+                    recommendedVehicleName = bestCar.getName();
+                }
+            }
+        }
 
-        return new ComparisonResultDTO(generated, alternative, avoided, score, recommended);
+        return new ComparisonResultDTO(generated, alternative, avoided, score, recommendedMode, recommendedVehicleName);
     }
 
-    private Double getFactorForMode(String mode, Long vehicleId) {
+    private Double getFactorForMode(String mode, Long vehicleId, String busOccupancy) {
         if ("CAR".equals(mode)) {
             Vehicle v = vehicleRepository.findById(vehicleId).orElseThrow();
             return v.getEmissionFactor();
         } else if ("BUS".equals(mode)) {
-            EmissionFactor ef = emissionFactorRepository.findByTransportType("BUS");
-            if (ef == null) throw new IllegalStateException("BUS factor not set");
-            return ef.getFactorValue();
+            return getBusFactor(busOccupancy);
         } else if ("TRAIN".equals(mode)) {
             EmissionFactor ef = emissionFactorRepository.findByTransportType("TRAIN");
             if (ef == null) throw new IllegalStateException("TRAIN factor not set");
@@ -110,15 +130,23 @@ public class ImpactService {
         throw new IllegalArgumentException("Unknown mode");
     }
 
-    private double getBestAlternativeFactor(String currentMode) {
+    private double getBusFactor(String occupancy) {
+        if ("HIGH".equals(occupancy)) return BUS_FACTOR_HIGH;
+        else if ("MEDIUM".equals(occupancy)) return BUS_FACTOR_MEDIUM;
+        else return BUS_FACTOR_LOW;
+    }
+
+    private double getBestAlternativeFactor(String currentMode, Long currentVehicleId, String currentBusOccupancy) {
         List<Double> factors = new ArrayList<>();
         if (!"CAR".equals(currentMode)) {
             Vehicle bestCar = vehicleService.findMostEcoFriendlyCar();
             if (bestCar != null) factors.add(bestCar.getEmissionFactor());
+        } else {
+            Vehicle bestCar = vehicleService.findMostEcoFriendlyCarExcluding(currentVehicleId);
+            if (bestCar != null) factors.add(bestCar.getEmissionFactor());
         }
         if (!"BUS".equals(currentMode)) {
-            EmissionFactor bus = emissionFactorRepository.findByTransportType("BUS");
-            if (bus != null) factors.add(bus.getFactorValue());
+            factors.add(BUS_FACTOR_HIGH);
         }
         if (!"TRAIN".equals(currentMode)) {
             EmissionFactor train = emissionFactorRepository.findByTransportType("TRAIN");
@@ -128,16 +156,18 @@ public class ImpactService {
         return factors.stream().min(Double::compare).orElse(0.0);
     }
 
-    private double getBestOverallFactor(String currentMode, Long vehicleId) {
+    private double getBestOverallFactor(String currentMode, Long vehicleId, String busOccupancy) {
         List<Double> factors = new ArrayList<>();
-        factors.add(getFactorForMode(currentMode, vehicleId));
+        factors.add(getFactorForMode(currentMode, vehicleId, busOccupancy));
         if (!"CAR".equals(currentMode)) {
             Vehicle bestCar = vehicleService.findMostEcoFriendlyCar();
             if (bestCar != null) factors.add(bestCar.getEmissionFactor());
+        } else {
+            Vehicle bestCar = vehicleService.findMostEcoFriendlyCarExcluding(vehicleId);
+            if (bestCar != null) factors.add(bestCar.getEmissionFactor());
         }
         if (!"BUS".equals(currentMode)) {
-            EmissionFactor bus = emissionFactorRepository.findByTransportType("BUS");
-            if (bus != null) factors.add(bus.getFactorValue());
+            factors.add(BUS_FACTOR_HIGH);
         }
         if (!"TRAIN".equals(currentMode)) {
             EmissionFactor train = emissionFactorRepository.findByTransportType("TRAIN");
@@ -146,20 +176,78 @@ public class ImpactService {
         return factors.stream().min(Double::compare).orElse(0.0);
     }
 
-    private String getRecommendedMode(String currentMode, double distance) {
-        Map<String, Double> modeToFactor = new HashMap<>();
-        Vehicle bestCar = vehicleService.findMostEcoFriendlyCar();
-        if (bestCar != null) modeToFactor.put("CAR", bestCar.getEmissionFactor());
-        EmissionFactor bus = emissionFactorRepository.findByTransportType("BUS");
-        if (bus != null) modeToFactor.put("BUS", bus.getFactorValue());
-        EmissionFactor train = emissionFactorRepository.findByTransportType("TRAIN");
-        if (train != null) modeToFactor.put("TRAIN", train.getFactorValue());
+    private String getRecommendedMode(String currentMode, Long currentVehicleId) {
+        // Obtener el mejor carro excluyendo el actual (si es CAR)
+        Vehicle bestCar;
+        if ("CAR".equals(currentMode)) {
+            bestCar = vehicleService.findMostEcoFriendlyCarExcluding(currentVehicleId);
+        } else {
+            bestCar = vehicleService.findMostEcoFriendlyCar();
+        }
 
-        modeToFactor.remove(currentMode);
-        if (modeToFactor.isEmpty()) return "No alternative";
-        return modeToFactor.entrySet().stream()
-                .min(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse("Unknown");
+        Double carFactor = bestCar != null ? bestCar.getEmissionFactor() : null;
+        Double busFactor = BUS_FACTOR_HIGH;
+        Double trainFactor = null;
+        EmissionFactor train = emissionFactorRepository.findByTransportType("TRAIN");
+        if (train != null) {
+            trainFactor = train.getFactorValue();
+        }
+
+        // Determinar el modo con el factor mínimo (con prioridad CAR > BUS > TRAIN en empates)
+        String bestMode = null;
+        double bestValue = Double.MAX_VALUE;
+
+        if (carFactor != null) {
+            bestMode = "CAR";
+            bestValue = carFactor;
+        }
+        if (busFactor != null && busFactor < bestValue) {
+            bestMode = "BUS";
+            bestValue = busFactor;
+        } else if (busFactor != null && busFactor == bestValue && bestMode != null && !bestMode.equals("CAR")) {
+            if (!"CAR".equals(bestMode)) {
+                bestMode = "BUS";
+            }
+        }
+        if (trainFactor != null && trainFactor < bestValue) {
+            bestMode = "TRAIN";
+            bestValue = trainFactor;
+        } else if (trainFactor != null && trainFactor == bestValue && bestMode != null && !bestMode.equals("CAR") && !bestMode.equals("BUS")) {
+            bestMode = "TRAIN";
+        }
+
+        // Si el modo actual no es CAR, eliminamos ese modo de la consideración si es el mejor
+        if (!"CAR".equals(currentMode)) {
+            if (currentMode.equals(bestMode)) {
+                Map<String, Double> modeToFactor = new LinkedHashMap<>();
+                if (carFactor != null && !"CAR".equals(currentMode)) modeToFactor.put("CAR", carFactor);
+                if (!"BUS".equals(currentMode)) modeToFactor.put("BUS", busFactor);
+                if (trainFactor != null && !"TRAIN".equals(currentMode)) modeToFactor.put("TRAIN", trainFactor);
+
+                if (modeToFactor.isEmpty()) return "No alternative";
+
+                bestMode = null;
+                bestValue = Double.MAX_VALUE;
+                if (modeToFactor.containsKey("CAR")) {
+                    bestMode = "CAR";
+                    bestValue = modeToFactor.get("CAR");
+                }
+                if (modeToFactor.containsKey("BUS") && modeToFactor.get("BUS") < bestValue) {
+                    bestMode = "BUS";
+                    bestValue = modeToFactor.get("BUS");
+                } else if (modeToFactor.containsKey("BUS") && modeToFactor.get("BUS") == bestValue && !"CAR".equals(bestMode)) {
+                    bestMode = "BUS";
+                }
+                if (modeToFactor.containsKey("TRAIN") && modeToFactor.get("TRAIN") < bestValue) {
+                    bestMode = "TRAIN";
+                    bestValue = modeToFactor.get("TRAIN");
+                } else if (modeToFactor.containsKey("TRAIN") && modeToFactor.get("TRAIN") == bestValue && !"CAR".equals(bestMode) && !"BUS".equals(bestMode)) {
+                    bestMode = "TRAIN";
+                }
+                return bestMode != null ? bestMode : "Unknown";
+            }
+        }
+
+        return bestMode != null ? bestMode : "No alternative";
     }
 }
